@@ -1,44 +1,105 @@
+#这段代码是 Makefile.build 脚本，它是整个项目构建系统的核心部分，负责递归编译所有子目录并生成汇总目标文件。
 
+
+
+#                                                    一、核心变量与初始化
+
+#PHONY := __build 定义了一个伪目标 __build，用于避免与同名文件冲突（确保 make __build 始终执行命令，而非检查文件）
 PHONY := __build
 __build:
 
-
+#变量初始化
+#用于存储当前目录需要编译的目标文件（.o）和子目录（/ 结尾）
 obj-y :=
+#用于存储需要递归编译的子目录列表
 subdir-y :=
+#当前目录的额外编译选项
 EXTRA_CFLAGS :=
 
+#引入外部 Makefile
+#include Makefile 会读取当前目录下的 Makefile（每个子目录都有自己的 Makefile），该文件会定义当前目录的 obj-y
 include Makefile
+
+
+
+
 
 # obj-y := a.o b.o c/ d/
 # $(filter %/, $(obj-y))   : c/ d/
 # __subdir-y  : c d
 # subdir-y    : c d
+
+
+#                                             二、解析子目录与目标文件
+
+#总结：subdir-y是所有目录里面的obj加起来
+# 提取 obj-y 中以 / 结尾的项（子目录），并去掉 /
+#filter %/, $(obj-y) 从 obj-y 中筛选出以 / 结尾的项（子目录，如 c/、d/）。
+#patsubst %/,%,... 去掉结尾的 /，得到子目录名（如 c、d），存入 subdir-y。
+#subdir_objs 生成所有子目录的汇总目标文件路径（每个子目录编译后会生成 built-in.o）。
+
 __subdir-y	:= $(patsubst %/,%,$(filter %/, $(obj-y)))
 subdir-y	+= $(__subdir-y)
 
+
+
+# 生成子目录的 built-in.o 路径（如 c/built-in.o d/built-in.o）
 # c/built-in.o d/built-in.o
+
 subdir_objs := $(foreach f,$(subdir-y),$(f)/built-in.o)
 
+
+
+# 提取 obj-y 中不以 / 结尾的项（当前目录的 .o 文件）
 # a.o b.o
+
 cur_objs := $(filter-out %/, $(obj-y))
+
+
+
+#                                              三、依赖文件处理
+
+# 生成依赖文件路径（如 .a.o.d .b.o.d）
 dep_files := $(foreach f,$(cur_objs),.$(f).d)
 dep_files := $(wildcard $(dep_files))
 
+#通过 include $(dep_files) 导入这些依赖，确保当头文件修改时，Make 会自动重新编译相关的 .c 文件。
 ifneq ($(dep_files),)
   include $(dep_files)
 endif
 
 
+
+#                                             四、构建规则与递归编译
+
+#核心构建目标 __build：
+#依赖 $(subdir-y)（所有子目录编译完成）和 built-in.o（当前目录汇总目标文件），是整个构建流程的入口。
+
 PHONY += $(subdir-y)
 
-
 __build : $(subdir-y) built-in.o
+
+#递归编译子目录：
+#规则 $(subdir-y): 表示每个子目录都需要被编译。
+#命令 make -C $@ -f $(TOPDIR)/Makefile.build 意为：进入子目录 $@（如 c），
+#并使用顶层目录的 Makefile.build 进行编译（递归执行相同的构建逻辑）。
 
 $(subdir-y):
 	make -C $@ -f $(TOPDIR)/Makefile.build
 
+#生成当前目录的 built-in.o：
+#依赖：当前目录的目标文件 $(cur_objs)（如 a.o、b.o）和所有子目录的 built-in.o（$(subdir_objs)）。
+#命令 $(LD) -r -o $@ $^：使用链接器 ld 的 -r 选项（ relocatable，可重定位），
+#将所有依赖的 .o 文件合并为一个 built-in.o（当前目录的汇总目标文件）。
+
 built-in.o : $(cur_objs) $(subdir_objs)
 	$(LD) -r -o $@ $^
+
+#                                          五、编译单个 C 文件为目标文件
+
+#这是编译 .c 文件为 .o 文件的通用规则。
+#关键参数 -Wp,-MD,$(dep_file)：通过预处理器生成依赖文件（.d），记录该 .o 文件依赖的所有头文件。
+#$< 表示依赖文件（.c 源文件），$@ 表示目标文件（.o）。
 
 dep_file = .$@.d
 

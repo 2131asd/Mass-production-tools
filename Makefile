@@ -2,6 +2,12 @@
 
 #?= 是 Makefile 的条件赋值运算符：如果CROSS_COMPILE变量未被定义过，则赋值为空（默认不使用交叉编译）。
 #作用：用于指定交叉编译工具链的前缀（例如 ARM 架构可能设为arm-linux-gnueabihf-），为空时使用当前系统的原生工具链。
+
+#作用：定义编译过程中需要用到的各种工具
+#细节：CROSS_COMPILE ?= 使用条件赋值，允许用户通过命令行指定交叉编译工具链前缀（如 arm-linux-gnueabihf-）
+#当不需要交叉编译时，这些变量会直接使用系统默认的工具（as、ld、gcc 等）
+#包含了从汇编、编译、链接到后期处理（strip、objcopy 等）的全套工具
+
 CROSS_COMPILE ?=
 AS     =$(CROSS_COMPILE)as 	#汇编器（as），用于汇编代码编译。
 LD     =$(CROSS_COMPILE)ld 	#链接器（ld），用于将目标文件链接为可执行文件。
@@ -18,8 +24,13 @@ OBJDUMP  =$(CROSS_COMPILE)objdump 	#目标文件反汇编工具（objdump），�
 export AS LD CC CPP AR NM 
 export STRIP OBJCOPY OBJDUMP
 
+
+
+
 #开启所有警告（提醒代码中的潜在问题）。表示开启二级优化
 CFLAGS  := -Wall -O2 -gcc
+#shell：是 Makefile 的内置函数，用于执行 shell 命令
+#pwd：是 Linux 系统自带的命令，用于获取当前工作目录的绝对路径
 #补充编译选项，-I $(shell pwd)/include表示指定头文件搜索路径为当前目录下的include文件夹（$(shell pwd)获取当前目录绝对路径）。
 CFLAGS  += -I $(shell pwd)/include
 
@@ -29,10 +40,16 @@ LDFLAGS := -lts -lpthread -lfreetype -lm
 #将CFLAGS（编译选项）和LDFLAGS（链接选项）导出为环境变量，供子目录的 Makefile 使用。
 export CFLAGS LDFLAGS
 
+
+
+
 TOPDIR :=$(shell pwd)	#定义项目顶层目录为当前目录的绝对路
 export TOPDIR			#用于将顶层目录路径导出，供子 Makefile 定位顶层资源。
 
 TARGET :=test	#定义最终生成的可执行文件名为test。
+
+
+
 
 #指定需要编译的子目录
 obj-y += display/
@@ -43,13 +60,22 @@ obj-y += page/
 obj-y += config/
 obj-y += business/
 
+#先执行 start_recursive_build 递归编译子目录，再生成目标文件，最后输出构建完成信息
+@ 符号表示不显示命令本身，只显示命令执行结果
 all : start_recursive_build $(TARGET)
 	@echo $(TARGET) has been built! 
 
+#启动递归编译过程
+#make -C ./：在当前目录执行 make
+#-f $(TOPDIR)/Makefile.build：指定使用顶层目录的 Makefile.build 作为构建规则文件
+#这通常是一个辅助 Makefile，用于遍历 obj-y 中定义的子目录并编译其中的代码
 start_recursive_build:
 	make -C ./ -f $(TOPDIR)/Makefile.build
 
-$(TARGET) :built-in.obj
+#链接生成最终可执行文件
+#依赖 built-in.o（由子目录编译生成的汇总目标文件）
+#使用之前定义的编译器和链接选项将目标文件链接为可执行文件
+$(TARGET) :built-in.o
 	$(CC) -o $(TARGET) built-in.o $(LDFLAGS)
 
 clean:
